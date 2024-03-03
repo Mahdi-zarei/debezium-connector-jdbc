@@ -37,7 +37,7 @@ public class PostgresDatabaseDialect extends GeneralDatabaseDialect {
     public static class PostgresDatabaseDialectProvider implements DatabaseDialectProvider {
         @Override
         public boolean supports(Dialect dialect) {
-            return dialect instanceof PostgreSQLDialect;
+            return true;
         }
 
         @Override
