@@ -213,20 +213,33 @@ public class JdbcChangeEventSink implements ChangeEventSink {
         Stopwatch tableChangesStopwatch = Stopwatch.reusable();
         if (!toFlush.isEmpty()) {
             LOGGER.debug("Flushing records in JDBC Writer for table: {}", tableId.getTableName());
-            try {
-                tableChangesStopwatch.start();
-                final TableDescriptor table = checkAndApplyTableChangesIfNeeded(tableId, toFlush.get(0));
-                tableChangesStopwatch.stop();
-                String sqlStatement = getSqlStatement(table, toFlush.get(0));
-                flushBufferStopwatch.start();
-                recordWriter.write(toFlush, sqlStatement);
-                flushBufferStopwatch.stop();
+            int maxRetry=20;
+            int sleepTimeMs = 500;
+            int retryCount = 0;
+            while(true) {
+                try {
+                    tableChangesStopwatch.start();
+                    final TableDescriptor table = checkAndApplyTableChangesIfNeeded(tableId, toFlush.get(0));
+                    tableChangesStopwatch.stop();
+                    String sqlStatement = getSqlStatement(table, toFlush.get(0));
+                    flushBufferStopwatch.start();
+                    recordWriter.write(toFlush, sqlStatement);
+                    flushBufferStopwatch.stop();
 
-                LOGGER.trace("[PERF] Flush buffer execution time {}", flushBufferStopwatch.durations());
-                LOGGER.trace("[PERF] Table changes execution time {}", tableChangesStopwatch.durations());
-            }
-            catch (Exception e) {
-                throw new ConnectException("Failed to process a sink record", e);
+                    LOGGER.trace("[PERF] Flush buffer execution time {}", flushBufferStopwatch.durations());
+                    LOGGER.trace("[PERF] Table changes execution time {}", tableChangesStopwatch.durations());
+                    return;
+                }
+                catch (Exception e) {
+                    if (++retryCount == maxRetry) {
+                        throw new ConnectException("Failed to process a sink record", e);
+                    }
+                    try {
+                        Thread.sleep(sleepTimeMs);
+                    } catch (InterruptedException ex) {
+                        throw new RuntimeException(ex);
+                    }
+                }
             }
         }
     }

@@ -57,7 +57,9 @@ public class RecordWriter {
                 break;
             }
             catch (Exception e) {
-                transaction.rollback();
+                try {
+                    transaction.rollback();
+                } catch(Exception ignored) {}
                 retryCount++;
                 if (retryCount == maxRetry) {
                     throw e;
