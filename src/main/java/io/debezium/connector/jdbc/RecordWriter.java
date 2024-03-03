@@ -86,9 +86,33 @@ public class RecordWriter {
                 allbindStopwatch.stop();
                 LOGGER.trace("[PERF] All records bind execution time {}", allbindStopwatch.durations());
 
+                int[] batchResult;
                 Stopwatch executeStopwatch = Stopwatch.reusable();
                 executeStopwatch.start();
-                int[] batchResult = prepareStatement.executeBatch();
+
+                int retryCount = 0;
+                int maxRetry = 20;
+                int sleepTimeMS = 500;
+
+                while (true) {
+                    try {
+                        batchResult = prepareStatement.executeBatch();
+                        break;
+                    }
+                    catch (Exception e) {
+                        retryCount++;
+                        if (retryCount == maxRetry) {
+                            throw e;
+                        }
+                        LOGGER.info("Failed to write batch with err {}, retrying...", e.getMessage());
+                        try {
+                            Thread.sleep(sleepTimeMS);
+                        } catch (InterruptedException ex) {
+                            throw new RuntimeException(ex);
+                        }
+                    }
+                }
+
                 executeStopwatch.stop();
                 for (int updateCount : batchResult) {
                     if (updateCount == Statement.EXECUTE_FAILED) {
