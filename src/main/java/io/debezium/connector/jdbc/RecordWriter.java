@@ -43,11 +43,9 @@ public class RecordWriter {
 
     public void write(List<SinkRecordDescriptor> records, String sqlStatement) {
 
-        Stopwatch writeStopwatch = Stopwatch.reusable();
-        writeStopwatch.start();
         int retryCount=0;
-        int maxRetry=20;
-        int sleepTimeMs = 500;
+        int maxRetry=50;
+        int sleepTimeMs = 10;
         while (true) {
             final Transaction transaction = session.beginTransaction();
 
@@ -72,8 +70,6 @@ public class RecordWriter {
                 }
             }
         }
-        writeStopwatch.stop();
-        LOGGER.trace("[PERF] Total write execution time {}", writeStopwatch.durations());
     }
 
     private Work processBatch(List<SinkRecordDescriptor> records, String sqlStatement) {
@@ -83,36 +79,19 @@ public class RecordWriter {
             try (PreparedStatement prepareStatement = conn.prepareStatement(sqlStatement)) {
 
                 QueryBinder queryBinder = queryBinderResolver.resolve(prepareStatement);
-                Stopwatch allbindStopwatch = Stopwatch.reusable();
-                allbindStopwatch.start();
                 for (SinkRecordDescriptor sinkRecordDescriptor : records) {
 
-                    Stopwatch singlebindStopwatch = Stopwatch.reusable();
-                    singlebindStopwatch.start();
                     bindValues(sinkRecordDescriptor, queryBinder);
-                    singlebindStopwatch.stop();
 
-                    Stopwatch addBatchStopwatch = Stopwatch.reusable();
-                    addBatchStopwatch.start();
                     prepareStatement.addBatch();
-                    addBatchStopwatch.stop();
 
-                    LOGGER.trace("[PERF] Bind single record execution time {}", singlebindStopwatch.durations());
-                    LOGGER.trace("[PERF] Add batch execution time {}", addBatchStopwatch.durations());
                 }
-                allbindStopwatch.stop();
-                LOGGER.trace("[PERF] All records bind execution time {}", allbindStopwatch.durations());
-
-                Stopwatch executeStopwatch = Stopwatch.reusable();
-                executeStopwatch.start();
                 int[] batchResult = prepareStatement.executeBatch();
-                executeStopwatch.stop();
                 for (int updateCount : batchResult) {
                     if (updateCount == Statement.EXECUTE_FAILED) {
                         throw new BatchUpdateException("Execution failed for part of the batch", batchResult);
                     }
                 }
-                LOGGER.trace("[PERF] Execute batch execution time {}", executeStopwatch.durations());
             }
         };
     }

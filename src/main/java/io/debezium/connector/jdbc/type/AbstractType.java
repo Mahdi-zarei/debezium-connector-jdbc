@@ -54,6 +54,8 @@ public abstract class AbstractType implements Type {
                 return Double.toString((double) value);
             case STRING:
                 return "'" + value + "'";
+            case ARRAY:
+
             case BOOLEAN:
                 return dialect.getFormattedBoolean((boolean) value);
         }

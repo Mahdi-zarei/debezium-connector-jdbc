@@ -50,6 +50,7 @@ public class JdbcChangeEventSink implements ChangeEventSink {
     private final StatelessSession session;
     private final TableNamingStrategy tableNamingStrategy;
     private final RecordWriter recordWriter;
+    private final HashMap<TableId, TableDescriptor> tableCache;
 
     public JdbcChangeEventSink(JdbcSinkConnectorConfig config, StatelessSession session, DatabaseDialect dialect, RecordWriter recordWriter) {
 
@@ -58,6 +59,7 @@ public class JdbcChangeEventSink implements ChangeEventSink {
         this.dialect = dialect;
         this.session = session;
         this.recordWriter = recordWriter;
+        this.tableCache = new HashMap<>();
         final DatabaseVersion version = this.dialect.getVersion();
         LOGGER.info("Database version {}.{}.{}", version.getMajor(), version.getMinor(), version.getMicro());
     }
@@ -209,25 +211,17 @@ public class JdbcChangeEventSink implements ChangeEventSink {
 
     private void flushBuffer(TableId tableId, List<SinkRecordDescriptor> toFlush) {
 
-        Stopwatch flushBufferStopwatch = Stopwatch.reusable();
-        Stopwatch tableChangesStopwatch = Stopwatch.reusable();
         if (!toFlush.isEmpty()) {
             LOGGER.debug("Flushing records in JDBC Writer for table: {}", tableId.getTableName());
-            int maxRetry=20;
-            int sleepTimeMs = 500;
+            int maxRetry=50;
+            int sleepTimeMs = 10;
             int retryCount = 0;
             while(true) {
                 try {
-                    tableChangesStopwatch.start();
                     final TableDescriptor table = checkAndApplyTableChangesIfNeeded(tableId, toFlush.get(0));
-                    tableChangesStopwatch.stop();
                     String sqlStatement = getSqlStatement(table, toFlush.get(0));
-                    flushBufferStopwatch.start();
                     recordWriter.write(toFlush, sqlStatement);
-                    flushBufferStopwatch.stop();
 
-                    LOGGER.trace("[PERF] Flush buffer execution time {}", flushBufferStopwatch.durations());
-                    LOGGER.trace("[PERF] Table changes execution time {}", tableChangesStopwatch.durations());
                     return;
                 }
                 catch (Exception e) {
@@ -297,6 +291,9 @@ public class JdbcChangeEventSink implements ChangeEventSink {
     }
 
     private boolean hasTable(TableId tableId) {
+        if (tableCache.get(tableId) != null) {
+            return true;
+        }
         return session.doReturningWork((connection) -> dialect.tableExists(connection, tableId));
     }
 
@@ -324,7 +321,9 @@ public class JdbcChangeEventSink implements ChangeEventSink {
             throw e;
         }
 
-        return readTable(tableId);
+        final TableDescriptor createdTable = readTable(tableId);
+        tableCache.put(tableId, createdTable);
+        return createdTable;
     }
 
     private TableDescriptor alterTableIfNeeded(TableId tableId, SinkRecordDescriptor record) throws SQLException {
@@ -335,15 +334,33 @@ public class JdbcChangeEventSink implements ChangeEventSink {
             throw new SQLException("Could not find table: " + tableId.toFullIdentiferString());
         }
 
-        // Resolve table metadata from the database
-        final TableDescriptor table = readTable(tableId);
+        TableDescriptor table;
+        boolean cacheHit = false;
+
+        final TableDescriptor cachedTable = tableCache.get(tableId);
+        if (cachedTable != null) {
+            table = cachedTable;
+            cacheHit = true;
+        } else {
+            table = readTable(tableId);
+        }
 
         // Delegating to dialect to deal with database case sensitivity.
         Set<String> missingFields = dialect.resolveMissingFields(record, table);
         if (missingFields.isEmpty()) {
             // There are no missing fields, simply return
             // todo: should we check column type changes or default value changes?
+            if (!cacheHit) {
+                tableCache.put(tableId, table);
+            }
             return table;
+        } else {
+            table = readTable(tableId);
+            missingFields = dialect.resolveMissingFields(record, table);
+            if (missingFields.isEmpty()) {
+                tableCache.put(tableId, table);
+                return table;
+            }
         }
 
         LOGGER.debug("The follow fields are missing in the table: {}", missingFields);
@@ -373,7 +390,9 @@ public class JdbcChangeEventSink implements ChangeEventSink {
             throw e;
         }
 
-        return readTable(tableId);
+        final TableDescriptor changedTable=readTable(tableId);
+        tableCache.put(tableId, changedTable);
+        return changedTable;
     }
 
     private String getSqlStatement(TableDescriptor table, SinkRecordDescriptor record) {
