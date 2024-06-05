@@ -97,33 +97,13 @@ public class PostgresDatabaseDialect extends GeneralDatabaseDialect {
 
     @Override
     public String getUpsertStatement(TableDescriptor table, SinkRecordDescriptor record) {
-        List<String> rawKeyFieldNames = record.getKeyFieldNames();
-        List<String> keyFieldNames = new ArrayList<>();
-        for (String fieldName : rawKeyFieldNames) {
-            String valBinding = columnQueryBindingFromField(fieldName, table, record);
-            if (valBinding.contains("__debezium_unavailable_value")) {
-                continue;
-            }
-            keyFieldNames.add(fieldName);
-        }
-
-        List<String> rawNonKeyFieldNames = record.getNonKeyFieldNames();
-        List<String> nonKeyFieldNames = new ArrayList<>();
-        for (String fieldName : rawNonKeyFieldNames) {
-            String valBinding = columnQueryBindingFromField(fieldName, table, record);
-            if (valBinding.contains("__debezium_unavailable_value")) {
-                continue;
-            }
-            nonKeyFieldNames.add(fieldName);
-        }
-
         final SqlStatementBuilder builder = new SqlStatementBuilder();
         builder.append("UPSERT INTO ");
         builder.append(getQualifiedTableName(table.getId()));
         builder.append(" (");
-        builder.appendLists(",", keyFieldNames, nonKeyFieldNames, (name) -> columnNameFromField(name, record));
+        builder.appendLists(",", record.getKeyFieldNames(), record.getNonKeyFieldNames(), (name) -> columnNameFromField(name, record));
         builder.append(") VALUES (");
-        builder.appendLists(",", keyFieldNames, nonKeyFieldNames, (name) -> columnQueryBindingFromField(name, table, record));
+        builder.appendLists(",", record.getKeyFieldNames(), record.getNonKeyFieldNames(), (name) -> columnQueryBindingFromField(name, table, record));
         builder.append(")");
         return builder.build();
     }

@@ -370,7 +370,7 @@ public class SinkRecordDescriptor {
         private void applyRecordKeyAsPrimaryKey(SinkRecord record) {
             final Schema keySchema = record.keySchema();
             if (keySchema == null) {
-                throw new ConnectException("Configured primary key mode 'record_key' cannot have null schema");
+                return;
             }
             else if (keySchema.type().isPrimitive()) {
                 applyPrimitiveRecordKeyAsPrimaryKey(keySchema);

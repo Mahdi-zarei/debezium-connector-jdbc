@@ -402,9 +402,6 @@ public class JdbcChangeEventSink implements ChangeEventSink {
                 case INSERT:
                     return dialect.getInsertStatement(table, record);
                 case UPSERT:
-                    if (record.getKeyFieldNames().isEmpty()) {
-                        throw new ConnectException("Cannot write to table " + table.getId().getTableName() + " with no key fields defined.");
-                    }
                     return dialect.getUpsertStatement(table, record);
                 case UPDATE:
                     return dialect.getUpdateStatement(table, record);
